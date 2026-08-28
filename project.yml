@@ -1,0 +1,38 @@
+﻿name: M3U8Downloader
+options:
+  bundleIdPrefix: com.duan.m3u8downloader
+  deploymentTarget:
+    iOS: "15.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    CODE_SIGN_IDENTITY: ""
+    CODE_SIGNING_REQUIRED: NO
+    CODE_SIGNING_ALLOWED: NO
+targets:
+  M3U8Downloader:
+    type: application
+    platform: iOS
+    sources:
+      - path: ios/M3U8Downloader
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.duan.m3u8downloader
+        INFOPLIST_FILE: ios/M3U8Downloader/Info.plist
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: NO
+    dependencies:
+      - target: M3U8DownloaderExtension
+        embed: true
+  M3U8DownloaderExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ios/M3U8DownloaderExtension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.duan.m3u8downloader.extension
+        INFOPLIST_FILE: ios/M3U8DownloaderExtension/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
