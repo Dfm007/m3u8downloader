@@ -124,7 +124,7 @@ struct ContentView: View {
     }
     
     private func loadDetectedResources() {
-        detectedResources = AppGroup.loadDetectedResources()
+        detectedResources = SharedStorage.loadDetectedResources()
     }
 }
 

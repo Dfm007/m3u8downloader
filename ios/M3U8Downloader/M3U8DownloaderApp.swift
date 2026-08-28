@@ -12,7 +12,7 @@ struct M3U8DownloaderApp: App {
                            let decodedData = dataParam.removingPercentEncoding,
                            let jsonData = decodedData.data(using: .utf8),
                            let items = try? JSONSerialization.jsonObject(with: jsonData) as? [[String: String]] {
-                            AppGroup.saveDetectedResources(items)
+                            SharedStorage.saveDetectedResources(items)
                         }
                         NotificationCenter.default.post(name: .newResourcesDetected, object: nil)
                     }
