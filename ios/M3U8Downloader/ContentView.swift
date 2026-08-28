@@ -258,9 +258,10 @@ struct CompletedDownloadRow: View {
     let task: DownloadTask
     let onDelete: () -> Void
     @State private var showShareSheet = false
+    @State private var showDeleteConfirm = false
     
     var body: some View {
-        HStack {
+        HStack(spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(task.resourceName)
                     .font(.headline)
@@ -273,23 +274,41 @@ struct CompletedDownloadRow: View {
             
             Spacer()
             
+            // 分享按钮
             Button(action: {
                 showShareSheet = true
             }) {
                 Image(systemName: "square.and.arrow.up")
+                    .font(.title3)
                     .foregroundColor(.blue)
+                    .frame(width: 44, height: 44)
             }
+            .buttonStyle(.plain)
             
-            Button(action: onDelete) {
+            // 删除按钮（带确认）
+            Button(action: {
+                showDeleteConfirm = true
+            }) {
                 Image(systemName: "trash")
+                    .font(.title3)
                     .foregroundColor(.red)
+                    .frame(width: 44, height: 44)
             }
+            .buttonStyle(.plain)
         }
         .padding(.vertical, 4)
         .sheet(isPresented: $showShareSheet) {
             if let fileURL = getFileURL(for: task) {
                 ShareSheet(activityItems: [fileURL])
             }
+        }
+        .alert("确认删除", isPresented: $showDeleteConfirm) {
+            Button("取消", role: .cancel) {}
+            Button("删除", role: .destructive) {
+                onDelete()
+            }
+        } message: {
+            Text("删除「\(task.resourceName)」？文件也会从磁盘移除。")
         }
     }
     

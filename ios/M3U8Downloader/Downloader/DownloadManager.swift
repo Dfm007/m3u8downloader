@@ -5,9 +5,12 @@ final class DownloadManager: ObservableObject {
     @Published var tasks: [DownloadTask] = []
     
     private let maxConcurrent = 3
-    private var runningCount = 0
     private var downloadJobs: [UUID: Task<Void, Never>] = [:]
     private var segmentData: [UUID: [Int: Data]] = [:]
+    
+    var runningCount: Int {
+        downloadJobs.count
+    }
     
     func addDownload(resourceName: String, m3u8URL: String) {
         let task = DownloadTask(resourceName: resourceName, m3u8URL: m3u8URL)
@@ -20,7 +23,6 @@ final class DownloadManager: ObservableObject {
         tasks[index].status = .paused
         downloadJobs[id]?.cancel()
         downloadJobs[id] = nil
-        runningCount -= 1
         scheduleNext()
     }
     
@@ -36,7 +38,6 @@ final class DownloadManager: ObservableObject {
         downloadJobs[id]?.cancel()
         downloadJobs[id] = nil
         segmentData[id] = nil
-        runningCount -= 1
         scheduleNext()
     }
     
@@ -50,12 +51,10 @@ final class DownloadManager: ObservableObject {
     }
     
     func delete(_ id: UUID) {
-        // 取消正在进行的下载
         downloadJobs[id]?.cancel()
         downloadJobs[id] = nil
         segmentData[id] = nil
         
-        // 如果已完成，删除已保存的文件
         if let index = tasks.firstIndex(where: { $0.id == id }),
            tasks[index].status == .completed,
            let fileName = tasks[index].outputFileName {
@@ -65,14 +64,7 @@ final class DownloadManager: ObservableObject {
             try? fileManager.removeItem(at: fileURL)
         }
         
-        // 从任务列表移除
         tasks.removeAll { $0.id == id }
-        
-        // 释放并发槽
-        if downloadJobs[id] == nil {
-            runningCount = max(0, runningCount - 1)
-        }
-        
         scheduleNext()
     }
     
@@ -87,7 +79,6 @@ final class DownloadManager: ObservableObject {
     private func startDownload(_ id: UUID) {
         guard let index = tasks.firstIndex(where: { $0.id == id }) else { return }
         tasks[index].status = .downloading
-        runningCount += 1
         
         downloadJobs[id] = Task { [weak self] in
             await self?.performDownload(id)
@@ -103,7 +94,6 @@ final class DownloadManager: ObservableObject {
                 throw M3U8ParserError.invalidURL
             }
             
-            // 1. 下载 m3u8 playlist
             let (data, _) = try await URLSession.shared.data(from: url)
             guard let content = String(data: data, encoding: .utf8) else {
                 throw M3U8ParserError.invalidContent
@@ -131,7 +121,6 @@ final class DownloadManager: ObservableObject {
                 segments = segs
             }
             
-            // 2. 下载分片
             tasks[index].totalSegmentCount = segments.count
             let startIndex = tasks[index].downloadedSegmentCount
             
@@ -150,7 +139,6 @@ final class DownloadManager: ObservableObject {
                 tasks[index].progress = Double(segmentIndex + 1) / Double(segments.count)
             }
             
-            // 3. 合并分片
             let mergedData = mergeSegments(segmentData[id] ?? [:], totalCount: segments.count)
             let outputURL = try saveMergedFile(mergedData, filename: task.resourceName)
             
@@ -159,13 +147,12 @@ final class DownloadManager: ObservableObject {
             segmentData[id] = nil
             
         } catch is CancellationError {
-            // 任务取消，保留当前进度用于恢复
+            // 被取消，保留进度
         } catch {
             tasks[index].status = .failed
             tasks[index].errorMessage = error.localizedDescription
         }
         
-        runningCount -= 1
         downloadJobs[id] = nil
         scheduleNext()
     }
