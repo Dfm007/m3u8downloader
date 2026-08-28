@@ -3,9 +3,11 @@
 }
 
 getActiveTab().then(tab => {
-    return browser.tabs.sendMessage(tab.id, { type: 'JUMP_TO_APP' }).then(() => {
-        window.close();
+    return browser.tabs.sendMessage(tab.id, { type: 'GET_DETECTED_ITEMS' }).then(response => {
+        const items = response ? response.items : [];
+        const json = encodeURIComponent(JSON.stringify(items));
+        window.location.href = 'm3u8downloader://import?data=' + json;
     }).catch(() => {
-        document.body.innerHTML = '<div style="padding:20px;font-family:-apple-system;">Failed to jump to app</div>';
+        window.location.href = 'm3u8downloader://import';
     });
 });

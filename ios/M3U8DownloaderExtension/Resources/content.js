@@ -26,7 +26,6 @@
         if (!detectedItems.has(fullURL)) {
             const name = extractName(fullURL, element);
             detectedItems.set(fullURL, name);
-            browser.runtime.sendMessage({ type: 'M3U8_DETECTED', url: fullURL, name: name }).catch(() => {});
         }
     }
     
@@ -68,11 +67,9 @@
     observer.observe(document.body, { childList: true, subtree: true });
     
     browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
-        if (message.type === 'JUMP_TO_APP') {
+        if (message.type === 'GET_DETECTED_ITEMS') {
             const items = Array.from(detectedItems.entries()).map(([url, name]) => ({ name, url }));
-            const json = encodeURIComponent(JSON.stringify(items));
-            window.location.href = 'm3u8downloader://import?data=' + json;
-            sendResponse({ success: true });
+            sendResponse({ items: items });
         }
     });
 })();
