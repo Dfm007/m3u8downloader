@@ -12,11 +12,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install XcodeGen
-        run: brew install xcodegen
+      - name: Install XcodeGen 2.38.0
+        run: brew install xcodegen@2.38.0
 
       - name: Generate Xcode project
         run: xcodegen generate
+
+      - name: Fix objectVersion for Xcode 15.4
+        run: |
+          sed -i "" "s/objectVersion = 77/objectVersion = 60/g" M3U8Downloader.xcodeproj/project.pbxproj
+          sed -i "" "s/compatibilityVersion = \\"Xcode 15.0\\"/compatibilityVersion = \\"Xcode 14.0\\"/g" M3U8Downloader.xcodeproj/project.pbxproj
 
       - name: Build app
         run: |

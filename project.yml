@@ -1,5 +1,6 @@
 ﻿name: M3U8Downloader
 options:
+  xcodeVersion: "15.4"
   bundleIdPrefix: com.duan.m3u8downloader
   deploymentTarget:
     iOS: "15.0"
