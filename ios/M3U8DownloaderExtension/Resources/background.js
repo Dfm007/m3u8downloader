@@ -1,16 +1,17 @@
-﻿let detectedURLs = {};
+﻿let detectedItems = {};
 
 browser.runtime.onMessage.addListener((message, sender) => {
     if (message.type === 'M3U8_DETECTED' && message.url) {
-        detectedURLs[sender.tab.id] = detectedURLs[sender.tab.id] || [];
-        if (!detectedURLs[sender.tab.id].includes(message.url)) {
-            detectedURLs[sender.tab.id].push(message.url);
+        detectedItems[sender.tab.id] = detectedItems[sender.tab.id] || [];
+        const exists = detectedItems[sender.tab.id].some(item => item.url === message.url);
+        if (!exists) {
+            detectedItems[sender.tab.id].push({ name: message.name || 'unknown', url: message.url });
         }
     }
 });
 
 browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'GET_DETECTED') {
-        sendResponse({ urls: detectedURLs[message.tabId] || [] });
+        sendResponse({ items: detectedItems[message.tabId] || [] });
     }
 });
