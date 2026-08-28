@@ -41,5 +41,5 @@ targets:
         INFOPLIST_FILE: ios/M3U8DownloaderExtension/Info.plist
         GENERATE_INFOPLIST_FILE: NO
         APPLICATION_EXTENSION_API_ONLY: YES
-        SKIP_INSTALL: YES
+        SKIP_INSTALL: NO
         CODE_SIGN_ENTITLEMENTS: ios/M3U8DownloaderExtension/M3U8DownloaderExtension.entitlements
