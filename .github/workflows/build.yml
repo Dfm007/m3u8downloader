@@ -34,6 +34,11 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO
 
+
+      - name: Debug app bundle structure
+        run: |
+          find build/Build/Products/Release-iphoneos/M3U8Downloader.app -maxdepth 2 -type d
+          ls -la build/Build/Products/Release-iphoneos/M3U8Downloader.app/PlugIns/ 2>/dev/null || echo No PlugIns directory
       - name: Package IPA
         run: |
           mkdir -p Payload
