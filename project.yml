@@ -16,12 +16,15 @@ targets:
     platform: iOS
     sources:
       - path: ios/M3U8Downloader
+    entitlements:
+      path: ios/M3U8Downloader/M3U8Downloader.entitlements
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.duan.m3u8downloader
         INFOPLIST_FILE: ios/M3U8Downloader/Info.plist
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: ios/M3U8Downloader/M3U8Downloader.entitlements
     dependencies:
       - target: M3U8DownloaderExtension
         embed: true
@@ -30,6 +33,8 @@ targets:
     platform: iOS
     sources:
       - path: ios/M3U8DownloaderExtension
+    entitlements:
+      path: ios/M3U8DownloaderExtension/M3U8DownloaderExtension.entitlements
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.duan.m3u8downloader.extension
@@ -37,3 +42,4 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         APPLICATION_EXTENSION_API_ONLY: YES
         SKIP_INSTALL: YES
+        CODE_SIGN_ENTITLEMENTS: ios/M3U8DownloaderExtension/M3U8DownloaderExtension.entitlements

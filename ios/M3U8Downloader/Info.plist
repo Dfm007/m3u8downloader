@@ -29,5 +29,13 @@
         <key>NSAllowsArbitraryLoads</key>
         <true/>
     </dict>
-</dict>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>m3u8downloader</string>
+            </array>
+        </dict>
+    </array></dict>
 </plist>

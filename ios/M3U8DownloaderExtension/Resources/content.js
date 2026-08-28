@@ -1,5 +1,5 @@
 ﻿(function() {
-    const detectedURLs = new Map();
+    const detectedItems = new Map();
     
     function extractName(url, element) {
         if (element && element.getAttribute('title')) {
@@ -23,21 +23,19 @@
     function reportM3U8(url, element) {
         if (!url || !url.includes('.m3u8')) return;
         const fullURL = new URL(url, window.location.href).href;
-        if (!detectedURLs.has(fullURL)) {
+        if (!detectedItems.has(fullURL)) {
             const name = extractName(fullURL, element);
-            detectedURLs.set(fullURL, name);
+            detectedItems.set(fullURL, name);
             browser.runtime.sendMessage({ type: 'M3U8_DETECTED', url: fullURL, name: name }).catch(() => {});
         }
     }
     
-    // Hook XMLHttpRequest
     const origOpen = XMLHttpRequest.prototype.open;
     XMLHttpRequest.prototype.open = function(method, url) {
         reportM3U8(url, null);
         return origOpen.apply(this, arguments);
     };
     
-    // Hook fetch
     const origFetch = window.fetch;
     window.fetch = function(input, init) {
         const url = typeof input === 'string' ? input : (input && input.url);
@@ -45,7 +43,6 @@
         return origFetch.apply(this, arguments);
     };
     
-    // Scan DOM
     function scanDOM() {
         document.querySelectorAll('video, source').forEach(el => {
             const src = el.src || el.getAttribute('src');
@@ -53,7 +50,6 @@
         });
     }
     
-    // Scan page source
     function scanSource() {
         const html = document.documentElement.outerHTML;
         const regex = /https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/g;
@@ -70,4 +66,13 @@
         scanDOM();
     });
     observer.observe(document.body, { childList: true, subtree: true });
+    
+    browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
+        if (message.type === 'JUMP_TO_APP') {
+            const items = Array.from(detectedItems.entries()).map(([url, name]) => ({ name, url }));
+            const json = encodeURIComponent(JSON.stringify(items));
+            window.location.href = 'm3u8downloader://import?data=' + json;
+            sendResponse({ success: true });
+        }
+    });
 })();
