@@ -3,6 +3,8 @@
 struct M3U8Segment {
     let duration: Double
     let url: String
+    let keyURI: String?
+    let keyIV: String?
 }
 
 struct M3U8Variant {
@@ -28,6 +30,8 @@ final class M3U8Parser {
         var variants: [M3U8Variant] = []
         var segments: [M3U8Segment] = []
         var currentDuration: Double = 0
+        var currentKeyURI: String?
+        var currentKeyIV: String?
         
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -36,6 +40,19 @@ final class M3U8Parser {
                 let bandwidth = extractAttribute(trimmed, name: "BANDWIDTH").flatMap(Int.init) ?? 0
                 let resolution = extractAttribute(trimmed, name: "RESOLUTION")
                 variants.append(M3U8Variant(bandwidth: bandwidth, resolution: resolution, url: ""))
+            } else if trimmed.hasPrefix("#EXT-X-KEY") {
+                // 解析 AES-128 key
+                let method = extractAttribute(trimmed, name: "METHOD")
+                if method == "AES-128" {
+                    let keyURI = extractAttribute(trimmed, name: "URI")
+                    if let keyURI = keyURI {
+                        currentKeyURI = resolveURL(keyURI, relativeTo: baseURL).absoluteString
+                    }
+                    currentKeyIV = extractAttribute(trimmed, name: "IV")
+                } else if method == "NONE" {
+                    currentKeyURI = nil
+                    currentKeyIV = nil
+                }
             } else if trimmed.hasPrefix("#EXTINF") {
                 let durationStr = trimmed.replacingOccurrences(of: "#EXTINF:", with: "")
                     .components(separatedBy: ",").first ?? "0"
@@ -51,7 +68,12 @@ final class M3U8Parser {
                         url: fullURL.absoluteString
                     )
                 } else {
-                    segments.append(M3U8Segment(duration: currentDuration, url: fullURL.absoluteString))
+                    segments.append(M3U8Segment(
+                        duration: currentDuration,
+                        url: fullURL.absoluteString,
+                        keyURI: currentKeyURI,
+                        keyIV: currentKeyIV
+                    ))
                 }
             }
         }

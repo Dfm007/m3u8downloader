@@ -1,4 +1,5 @@
 ﻿import Foundation
+import CryptoSwift
 
 @MainActor
 final class DownloadManager: ObservableObject {
@@ -124,16 +125,46 @@ final class DownloadManager: ObservableObject {
             tasks[index].totalSegmentCount = segments.count
             let startIndex = tasks[index].downloadedSegmentCount
             
+            // key 缓存
+            var cachedKey: [UInt8]?
+            var cachedKeyURI: String?
+            
             for segmentIndex in startIndex..<segments.count {
                 try Task.checkCancellation()
                 
                 guard let segURL = URL(string: segments[segmentIndex].url) else { continue }
                 let (segData, _) = try await URLSession.shared.data(from: segURL)
                 
+                var finalData = segData
+                
+                // AES-128-CBC 解密
+                if let keyURI = segments[segmentIndex].keyURI {
+                    let keyBytes: [UInt8]
+                    if cachedKeyURI == keyURI, let cached = cachedKey {
+                        keyBytes = cached
+                    } else {
+                        guard let keyURL = URL(string: keyURI) else { continue }
+                        let (kData, _) = try await URLSession.shared.data(from: keyURL)
+                        keyBytes = [UInt8](kData)
+                        cachedKey = keyBytes
+                        cachedKeyURI = keyURI
+                    }
+                    
+                    let ivBytes = getIVBytes(for: segments[segmentIndex], sequenceNumber: segmentIndex)
+                    
+                    do {
+                        let aes = try AES(key: keyBytes, blockMode: CBC(iv: ivBytes), padding: .pkcs7)
+                        let decrypted = try aes.decrypt([UInt8](segData))
+                        finalData = Data(decrypted)
+                    } catch {
+                        // 解密失败保留原始数据
+                    }
+                }
+                
                 if segmentData[id] == nil {
                     segmentData[id] = [:]
                 }
-                segmentData[id]?[segmentIndex] = segData
+                segmentData[id]?[segmentIndex] = finalData
                 
                 tasks[index].downloadedSegmentCount = segmentIndex + 1
                 tasks[index].progress = Double(segmentIndex + 1) / Double(segments.count)
@@ -147,7 +178,7 @@ final class DownloadManager: ObservableObject {
             segmentData[id] = nil
             
         } catch is CancellationError {
-            // 被取消，保留进度
+            // 被取消
         } catch {
             tasks[index].status = .failed
             tasks[index].errorMessage = error.localizedDescription
@@ -155,6 +186,34 @@ final class DownloadManager: ObservableObject {
         
         downloadJobs[id] = nil
         scheduleNext()
+    }
+    
+    private func getIVBytes(for segment: M3U8Segment, sequenceNumber: Int) -> [UInt8] {
+        if let ivHex = segment.keyIV {
+            let cleaned = ivHex.replacingOccurrences(of: "0x", with: "")
+            var bytes = [UInt8]()
+            var index = cleaned.startIndex
+            while index < cleaned.endIndex {
+                let nextIndex = cleaned.index(index, offsetBy: 2)
+                let byteStr = cleaned[index..<nextIndex]
+                if let byte = UInt8(byteStr, radix: 16) {
+                    bytes.append(byte)
+                }
+                index = nextIndex
+            }
+            if bytes.count == 16 {
+                return bytes
+            }
+        }
+        
+        // 默认 IV：分片序号（大端序）
+        var iv = [UInt8](repeating: 0, count: 16)
+        var seq = sequenceNumber
+        for i in stride(from: 15, through: 0, by: -1) {
+            iv[i] = UInt8(seq & 0xFF)
+            seq >>= 8
+        }
+        return iv
     }
     
     private func mergeSegments(_ data: [Int: Data], totalCount: Int) -> Data {

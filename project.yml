@@ -4,6 +4,10 @@ options:
   bundleIdPrefix: com.duan.m3u8downloader
   deploymentTarget:
     iOS: "15.0"
+packages:
+  CryptoSwift:
+    url: https://github.com/krzyzanowskim/CryptoSwift
+    from: 1.8.0
 settings:
   base:
     SWIFT_VERSION: "5.9"
@@ -16,15 +20,16 @@ targets:
     platform: iOS
     sources:
       - path: ios/M3U8Downloader
+    dependencies:
+      - package: CryptoSwift
+      - target: M3U8DownloaderExtension
+        embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.duan.m3u8downloader
         INFOPLIST_FILE: ios/M3U8Downloader/Info.plist
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: NO
-    dependencies:
-      - target: M3U8DownloaderExtension
-        embed: true
   M3U8DownloaderExtension:
     type: app-extension
     platform: iOS
