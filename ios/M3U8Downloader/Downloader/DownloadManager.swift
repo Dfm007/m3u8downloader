@@ -123,13 +123,20 @@ final class DownloadManager: ObservableObject {
 
         do {
             guard let url = URL(string: task.m3u8URL) else {
-                throw M3U8ParserError.invalidURL
-            }
+    throw M3U8ParserError.invalidURL
+}
 
-            let referer = refererForURL(url)
+let referer = refererForURL(url)
 
-            // 下载 m3u8 playlist
-            let (data, _) = try await URLSession.shared.data(for: makeRequest(url: url, referer: referer))
+// 先预热 Cookie（防 Cloudflare）
+await withCheckedContinuation { continuation in
+    CookieWarmer.shared.warmUp(url: url) {
+        continuation.resume()
+    }
+}
+
+// 下载 m3u8 playlist
+let (data, _) = try await URLSession.shared.data(for: makeRequest(url: url, referer: referer))
             guard let content = String(data: data, encoding: .utf8) else {
                 throw M3U8ParserError.invalidContent
             }
