@@ -6,22 +6,38 @@ struct ContentView: View {
     @State private var detectedResources: [DetectedResource] = []
     @State private var selectedResources: Set<UUID> = []
     @State private var downloadTab: DownloadTab = .active
-    
+
+    // 自定义下载
+    @State private var showCustomDownloadSheet = false
+    @State private var customURL = ""
+    @State private var customName = ""
+
     enum DownloadTab: String, CaseIterable {
         case active = "下载中"
         case completed = "已完成"
     }
-    
+
     var body: some View {
         TabView {
             NavigationView {
                 resourceListView
                     .navigationTitle("检测到的资源")
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarTrailing) {
+                            Button {
+                                customURL = ""
+                                customName = ""
+                                showCustomDownloadSheet = true
+                            } label: {
+                                Image(systemName: "plus.circle")
+                            }
+                        }
+                    }
             }
             .tabItem {
                 Label("资源", systemImage: "list.bullet")
             }
-            
+
             NavigationView {
                 downloadListView
                     .navigationTitle("下载")
@@ -36,10 +52,72 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .newResourcesDetected)) { _ in
             loadDetectedResources()
         }
+        .sheet(isPresented: $showCustomDownloadSheet) {
+            customDownloadSheet
+        }
     }
-    
+
+    // MARK: - 自定义下载弹窗
+
+    private var customDownloadSheet: some View {
+        NavigationView {
+            Form {
+                Section(header: Text("m3u8 链接")) {
+                    TextField("https://example.com/video.m3u8", text: $customURL)
+                        .keyboardType(.URL)
+                        .autocapitalization(.none)
+                        .disableAutocorrection(true)
+                }
+
+                Section(header: Text("资源名称（可选）")) {
+                    TextField("默认取链接文件名", text: $customName)
+                        .autocapitalization(.none)
+                        .disableAutocorrection(true)
+                }
+
+                Section {
+                    Button(action: startCustomDownload) {
+                        Text("开始下载")
+                            .frame(maxWidth: .infinity)
+                            .foregroundColor(.white)
+                            .padding(.vertical, 6)
+                            .background(customURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray : Color.blue)
+                            .cornerRadius(8)
+                    }
+                    .disabled(customURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            .navigationTitle("自定义下载")
+            .navigationBarItems(
+                leading: Button("取消") {
+                    showCustomDownloadSheet = false
+                }
+            )
+        }
+    }
+
+    private func startCustomDownload() {
+        let trimmedURL = customURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedURL.isEmpty else { return }
+
+        var name = customName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if name.isEmpty {
+            // 从 URL 提取文件名
+            if let url = URL(string: trimmedURL) {
+                let last = url.lastPathComponent
+                name = last.replacingOccurrences(of: ".m3u8", with: "", options: [.caseInsensitive])
+            }
+            if name.isEmpty {
+                name = "自定义下载"
+            }
+        }
+
+        downloadManager.addDownload(resourceName: name, m3u8URL: trimmedURL)
+        showCustomDownloadSheet = false
+    }
+
     // MARK: - 资源列表
-    
+
     private var resourceListView: some View {
         VStack {
             if detectedResources.isEmpty {
@@ -50,6 +128,9 @@ struct ContentView: View {
                     Text("暂无检测到的资源")
                         .foregroundColor(.secondary)
                     Text("在 Safari 中打开视频页面，点击扩展图标")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text("或点右上角 + 手动输入 m3u8 链接")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -77,7 +158,7 @@ struct ContentView: View {
                         }
                     }
                 }
-                
+
                 Button(action: startSelectedDownloads) {
                     Text("下载选中 (\(selectedResources.count))")
                         .frame(maxWidth: .infinity)
@@ -91,9 +172,9 @@ struct ContentView: View {
             }
         }
     }
-    
+
     // MARK: - 下载列表（分页）
-    
+
     private var downloadListView: some View {
         VStack(spacing: 0) {
             Picker("下载状态", selection: $downloadTab) {
@@ -104,7 +185,7 @@ struct ContentView: View {
             .pickerStyle(.segmented)
             .padding(.horizontal)
             .padding(.vertical, 8)
-            
+
             Group {
                 switch downloadTab {
                 case .active:
@@ -115,10 +196,10 @@ struct ContentView: View {
             }
         }
     }
-    
+
     private var activeDownloadsList: some View {
         let activeTasks = downloadManager.tasks.filter { $0.status != .completed }
-        
+
         return Group {
             if activeTasks.isEmpty {
                 VStack(spacing: 12) {
@@ -146,10 +227,10 @@ struct ContentView: View {
             }
         }
     }
-    
+
     private var completedDownloadsList: some View {
         let completedTasks = downloadManager.tasks.filter { $0.status == .completed }
-        
+
         return Group {
             if completedTasks.isEmpty {
                 VStack(spacing: 12) {
@@ -173,9 +254,9 @@ struct ContentView: View {
             }
         }
     }
-    
+
     // MARK: - 操作方法
-    
+
     private func toggleSelection(_ id: UUID) {
         if selectedResources.contains(id) {
             selectedResources.remove(id)
@@ -183,14 +264,14 @@ struct ContentView: View {
             selectedResources.insert(id)
         }
     }
-    
+
     private func startSelectedDownloads() {
         for resource in detectedResources where selectedResources.contains(resource.id) {
             downloadManager.addDownload(resourceName: resource.name, m3u8URL: resource.url)
         }
         selectedResources.removeAll()
     }
-    
+
     private func loadDetectedResources() {
         detectedResources = SharedStorage.loadDetectedResources()
     }
@@ -205,46 +286,33 @@ struct DownloadRow: View {
     let onCancel: () -> Void
     let onRetry: () -> Void
     let onDelete: () -> Void
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(task.resourceName)
                 .font(.headline)
-            
+
             if task.status == .downloading {
                 ProgressView(value: task.progress)
             }
-            
+
             Text(task.statusText)
                 .font(.caption)
                 .foregroundColor(.secondary)
-            
-            HStack(spacing: 16) {
-                switch task.status {
-                case .downloading:
+
+            HStack {
+                if task.status == .downloading {
                     Button("暂停", action: onPause)
-                    Button("取消", action: onCancel)
-                        .foregroundColor(.red)
-                case .paused:
+                } else if task.status == .paused {
                     Button("继续", action: onResume)
-                    Button("取消", action: onCancel)
-                        .foregroundColor(.red)
-                case .failed:
+                }
+                if task.status == .failed {
                     Button("重试", action: onRetry)
-                case .pending:
-                    EmptyView()
-                case .cancelled:
-                    EmptyView()
-                default:
-                    EmptyView()
                 }
-                
-                Spacer()
-                
-                Button(action: onDelete) {
-                    Image(systemName: "trash")
-                        .foregroundColor(.red)
+                if task.status == .cancelled {
+                    Button("重试", action: onRetry)
                 }
+                Button("删除", role: .destructive, action: onDelete)
             }
             .font(.caption)
         }
@@ -252,81 +320,25 @@ struct DownloadRow: View {
     }
 }
 
-// MARK: - 已完成行（带导出和删除）
+// MARK: - 已完成行
 
 struct CompletedDownloadRow: View {
     let task: DownloadTask
     let onDelete: () -> Void
-    @State private var showShareSheet = false
-    @State private var showDeleteConfirm = false
-    
+
     var body: some View {
-        HStack(spacing: 16) {
+        HStack {
             VStack(alignment: .leading, spacing: 4) {
                 Text(task.resourceName)
                     .font(.headline)
-                if let fileName = task.outputFileName {
-                    Text(fileName)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
+                Text(task.outputFileName ?? "")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
-            
             Spacer()
-            
-            // 分享按钮
-            Button(action: {
-                showShareSheet = true
-            }) {
-                Image(systemName: "square.and.arrow.up")
-                    .font(.title3)
-                    .foregroundColor(.blue)
-                    .frame(width: 44, height: 44)
-            }
-            .buttonStyle(.plain)
-            
-            // 删除按钮（带确认）
-            Button(action: {
-                showDeleteConfirm = true
-            }) {
-                Image(systemName: "trash")
-                    .font(.title3)
-                    .foregroundColor(.red)
-                    .frame(width: 44, height: 44)
-            }
-            .buttonStyle(.plain)
+            Button("删除", role: .destructive, action: onDelete)
+                .font(.caption)
         }
         .padding(.vertical, 4)
-        .sheet(isPresented: $showShareSheet) {
-            if let fileURL = getFileURL(for: task) {
-                ShareSheet(activityItems: [fileURL])
-            }
-        }
-        .alert("确认删除", isPresented: $showDeleteConfirm) {
-            Button("取消", role: .cancel) {}
-            Button("删除", role: .destructive) {
-                onDelete()
-            }
-        } message: {
-            Text("删除「\(task.resourceName)」？文件也会从磁盘移除。")
-        }
     }
-    
-    private func getFileURL(for task: DownloadTask) -> URL? {
-        guard let fileName = task.outputFileName else { return nil }
-        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        return documentsURL.appendingPathComponent("Downloads").appendingPathComponent(fileName)
-    }
-}
-
-// MARK: - UIActivityViewController 封装
-
-struct ShareSheet: UIViewControllerRepresentable {
-    let activityItems: [Any]
-    
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
-    }
-    
-    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
