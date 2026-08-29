@@ -5,6 +5,7 @@ struct M3U8Segment {
     let url: String
     let keyURI: String?
     let keyIV: String?
+    let byteRange: (length: Int, offset: Int)?
 }
 
 struct M3U8Variant {
@@ -24,7 +25,7 @@ enum M3U8ParserError: Error {
 }
 
 final class M3U8Parser {
-    
+
     static func parse(_ content: String, baseURL: URL) throws -> M3U8Playlist {
         let lines = content.components(separatedBy: .newlines)
         var variants: [M3U8Variant] = []
@@ -32,10 +33,11 @@ final class M3U8Parser {
         var currentDuration: Double = 0
         var currentKeyURI: String?
         var currentKeyIV: String?
-        
+        var currentByteRange: (length: Int, offset: Int)?
+
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-            
+
             if trimmed.hasPrefix("#EXT-X-STREAM-INF") {
                 let bandwidth = extractAttribute(trimmed, name: "BANDWIDTH").flatMap(Int.init) ?? 0
                 let resolution = extractAttribute(trimmed, name: "RESOLUTION")
@@ -53,6 +55,10 @@ final class M3U8Parser {
                     currentKeyURI = nil
                     currentKeyIV = nil
                 }
+            } else if trimmed.hasPrefix("#EXT-X-BYTERANGE") {
+                // 解析 BYTERANGE，格式: #EXT-X-BYTERANGE:752320@0
+                let rangeStr = trimmed.replacingOccurrences(of: "#EXT-X-BYTERANGE:", with: "")
+                currentByteRange = parseByteRange(rangeStr)
             } else if trimmed.hasPrefix("#EXTINF") {
                 let durationStr = trimmed.replacingOccurrences(of: "#EXTINF:", with: "")
                     .components(separatedBy: ",").first ?? "0"
@@ -72,12 +78,15 @@ final class M3U8Parser {
                         duration: currentDuration,
                         url: fullURL.absoluteString,
                         keyURI: currentKeyURI,
-                        keyIV: currentKeyIV
+                        keyIV: currentKeyIV,
+                        byteRange: currentByteRange
                     ))
+                    // BYTERANGE 只作用于紧跟着它的那一个分片，用完就清空
+                    currentByteRange = nil
                 }
             }
         }
-        
+
         if !variants.isEmpty {
             return .master(variants: variants)
         } else if !segments.isEmpty {
@@ -86,7 +95,17 @@ final class M3U8Parser {
             throw M3U8ParserError.invalidContent
         }
     }
-    
+
+    private static func parseByteRange(_ rangeStr: String) -> (length: Int, offset: Int)? {
+        let parts = rangeStr.split(separator: "@", omittingEmptySubsequences: false)
+        guard let length = Int(parts[0]) else { return nil }
+        if parts.count > 1 {
+            let offset = Int(parts[1]) ?? 0
+            return (length, offset)
+        }
+        return (length, 0)
+    }
+
     private static func extractAttribute(_ line: String, name: String) -> String? {
         let pattern = name + "=([^,]+)"
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
@@ -95,7 +114,7 @@ final class M3U8Parser {
         guard let swiftRange = Range(match.range(at: 1), in: line) else { return nil }
         return String(line[swiftRange]).replacingOccurrences(of: "\"", with: "")
     }
-    
+
     private static func resolveURL(_ urlString: String, relativeTo baseURL: URL) -> URL {
         if urlString.hasPrefix("http://") || urlString.hasPrefix("https://") {
             return URL(string: urlString) ?? baseURL
