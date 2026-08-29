@@ -87,8 +87,14 @@ final class DownloadManager: ObservableObject {
     }
 
     private func performDownload(_ id: UUID) async {
-        guard let index = tasks.firstIndex(where: { $0.id == id }) else { return }
-        let task = tasks[index]
+        // 每次访问 tasks 前都用 id 重新查找，不持有 index
+        func updateTask(_ update: (inout DownloadTask) -> Void) {
+            guard let idx = tasks.firstIndex(where: { $0.id == id }) else { return }
+            update(&tasks[idx])
+        }
+
+        // 取任务快照
+        guard let task = tasks.first(where: { $0.id == id }) else { return }
 
         do {
             guard let url = URL(string: task.m3u8URL) else {
@@ -122,15 +128,18 @@ final class DownloadManager: ObservableObject {
                 segments = segs
             }
 
-            tasks[index].totalSegmentCount = segments.count
-            let startIndex = tasks[index].downloadedSegmentCount
+            updateTask { $0.totalSegmentCount = segments.count }
 
-            // key 缓存
+            guard let currentTask = tasks.first(where: { $0.id == id }) else { return }
+            let startIndex = currentTask.downloadedSegmentCount
+
             var cachedKey: [UInt8]?
             var cachedKeyURI: String?
 
             for segmentIndex in startIndex..<segments.count {
                 try Task.checkCancellation()
+
+                guard tasks.contains(where: { $0.id == id }) else { return }
 
                 guard let segURL = URL(string: segments[segmentIndex].url) else { continue }
 
@@ -149,7 +158,6 @@ final class DownloadManager: ObservableObject {
 
                 var finalData = segData
 
-                // AES-128-CBC 解密
                 if let keyURI = segments[segmentIndex].keyURI {
                     let keyBytes: [UInt8]
                     if cachedKeyURI == keyURI, let cached = cachedKey {
@@ -178,22 +186,28 @@ final class DownloadManager: ObservableObject {
                 }
                 segmentData[id]?[segmentIndex] = finalData
 
-                tasks[index].downloadedSegmentCount = segmentIndex + 1
-                tasks[index].progress = Double(segmentIndex + 1) / Double(segments.count)
+                updateTask {
+                    $0.downloadedSegmentCount = segmentIndex + 1
+                    $0.progress = Double(segmentIndex + 1) / Double(segments.count)
+                }
             }
 
             let mergedData = mergeSegments(segmentData[id] ?? [:], totalCount: segments.count)
             let outputURL = try saveMergedFile(mergedData, filename: task.resourceName)
 
-            tasks[index].status = .completed
-            tasks[index].outputFileName = outputURL.lastPathComponent
+            updateTask {
+                $0.status = .completed
+                $0.outputFileName = outputURL.lastPathComponent
+            }
             segmentData[id] = nil
 
         } catch is CancellationError {
-            // 被取消
+            // 被取消，什么都不做
         } catch {
-            tasks[index].status = .failed
-            tasks[index].errorMessage = error.localizedDescription
+            updateTask {
+                $0.status = .failed
+                $0.errorMessage = error.localizedDescription
+            }
         }
 
         downloadJobs[id] = nil
@@ -214,7 +228,6 @@ final class DownloadManager: ObservableObject {
             }
             return bytes
         }
-        // 无 IV 时用 sequence number 按 HLS 规范生成
         var iv = [UInt8](repeating: 0, count: 16)
         let seq = UInt32(sequenceNumber)
         iv[12] = UInt8((seq >> 24) & 0xFF)

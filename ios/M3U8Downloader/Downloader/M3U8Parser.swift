@@ -34,6 +34,7 @@ final class M3U8Parser {
         var currentKeyURI: String?
         var currentKeyIV: String?
         var currentByteRange: (length: Int, offset: Int)?
+        var lastByteRangeEnd: Int = 0   // 关键：记录上一个 BYTERANGE 的结束位置
 
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -43,7 +44,6 @@ final class M3U8Parser {
                 let resolution = extractAttribute(trimmed, name: "RESOLUTION")
                 variants.append(M3U8Variant(bandwidth: bandwidth, resolution: resolution, url: ""))
             } else if trimmed.hasPrefix("#EXT-X-KEY") {
-                // 解析 AES-128 key
                 let method = extractAttribute(trimmed, name: "METHOD")
                 if method == "AES-128" {
                     let keyURI = extractAttribute(trimmed, name: "URI")
@@ -56,9 +56,8 @@ final class M3U8Parser {
                     currentKeyIV = nil
                 }
             } else if trimmed.hasPrefix("#EXT-X-BYTERANGE") {
-                // 解析 BYTERANGE，格式: #EXT-X-BYTERANGE:752320@0
                 let rangeStr = trimmed.replacingOccurrences(of: "#EXT-X-BYTERANGE:", with: "")
-                currentByteRange = parseByteRange(rangeStr)
+                currentByteRange = parseByteRange(rangeStr, lastEnd: lastByteRangeEnd)
             } else if trimmed.hasPrefix("#EXTINF") {
                 let durationStr = trimmed.replacingOccurrences(of: "#EXTINF:", with: "")
                     .components(separatedBy: ",").first ?? "0"
@@ -81,7 +80,10 @@ final class M3U8Parser {
                         keyIV: currentKeyIV,
                         byteRange: currentByteRange
                     ))
-                    // BYTERANGE 只作用于紧跟着它的那一个分片，用完就清空
+                    // 更新 lastByteRangeEnd 供下一个无 offset 的 BYTERANGE 使用
+                    if let range = currentByteRange {
+                        lastByteRangeEnd = range.offset + range.length
+                    }
                     currentByteRange = nil
                 }
             }
@@ -96,14 +98,17 @@ final class M3U8Parser {
         }
     }
 
-    private static func parseByteRange(_ rangeStr: String) -> (length: Int, offset: Int)? {
+    // 新版本：支持 offset 继承
+    private static func parseByteRange(_ rangeStr: String, lastEnd: Int) -> (length: Int, offset: Int)? {
         let parts = rangeStr.split(separator: "@", omittingEmptySubsequences: false)
         guard let length = Int(parts[0]) else { return nil }
         if parts.count > 1 {
-            let offset = Int(parts[1]) ?? 0
+            // 显式写了 @offset
+            let offset = Int(parts[1]) ?? lastEnd
             return (length, offset)
         }
-        return (length, 0)
+        // 没写 @offset：从上一个 BYTERANGE 结束位置继续
+        return (length, lastEnd)
     }
 
     private static func extractAttribute(_ line: String, name: String) -> String? {

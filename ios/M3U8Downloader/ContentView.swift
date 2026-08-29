@@ -12,6 +12,14 @@ struct ContentView: View {
     @State private var customURL = ""
     @State private var customName = ""
 
+    // 删除二次确认
+    @State private var showDeleteAlert = false
+    @State private var taskToDelete: DownloadTask?
+
+    // 导出分享
+    @State private var showShareSheet = false
+    @State private var shareURL: URL?
+
     enum DownloadTab: String, CaseIterable {
         case active = "下载中"
         case completed = "已完成"
@@ -54,6 +62,24 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showCustomDownloadSheet) {
             customDownloadSheet
+        }
+        .alert("确定要删除吗？", isPresented: $showDeleteAlert) {
+            Button("删除", role: .destructive) {
+                if let task = taskToDelete {
+                    downloadManager.delete(task.id)
+                    taskToDelete = nil
+                }
+            }
+            Button("取消", role: .cancel) {
+                taskToDelete = nil
+            }
+        } message: {
+            Text(taskToDelete?.resourceName ?? "")
+        }
+        .sheet(isPresented: $showShareSheet) {
+            if let url = shareURL {
+                ShareSheet(activityItems: [url])
+            }
         }
     }
 
@@ -102,7 +128,6 @@ struct ContentView: View {
 
         var name = customName.trimmingCharacters(in: .whitespacesAndNewlines)
         if name.isEmpty {
-            // 从 URL 提取文件名
             if let url = URL(string: trimmedURL) {
                 let last = url.lastPathComponent
                 name = last.replacingOccurrences(of: ".m3u8", with: "", options: [.caseInsensitive])
@@ -219,7 +244,10 @@ struct ContentView: View {
                             onResume: { downloadManager.resume(task.id) },
                             onCancel: { downloadManager.cancel(task.id) },
                             onRetry: { downloadManager.retry(task.id) },
-                            onDelete: { downloadManager.delete(task.id) }
+                            onDelete: {
+                                taskToDelete = task
+                                showDeleteAlert = true
+                            }
                         )
                     }
                 }
@@ -246,7 +274,21 @@ struct ContentView: View {
                     ForEach(completedTasks) { task in
                         CompletedDownloadRow(
                             task: task,
-                            onDelete: { downloadManager.delete(task.id) }
+                            onExport: {
+                                if let fileName = task.outputFileName {
+                                    let fileManager = FileManager.default
+                                    let documentsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                                    let fileURL = documentsURL.appendingPathComponent("Downloads").appendingPathComponent(fileName)
+                                    if fileManager.fileExists(atPath: fileURL.path) {
+                                        shareURL = fileURL
+                                        showShareSheet = true
+                                    }
+                                }
+                            },
+                            onDelete: {
+                                taskToDelete = task
+                                showDeleteAlert = true
+                            }
                         )
                     }
                 }
@@ -275,6 +317,18 @@ struct ContentView: View {
     private func loadDetectedResources() {
         detectedResources = SharedStorage.loadDetectedResources()
     }
+}
+
+// MARK: - 分享面板
+
+struct ShareSheet: UIViewControllerRepresentable {
+    let activityItems: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
 // MARK: - 下载中行
@@ -324,6 +378,7 @@ struct DownloadRow: View {
 
 struct CompletedDownloadRow: View {
     let task: DownloadTask
+    let onExport: () -> Void
     let onDelete: () -> Void
 
     var body: some View {
@@ -336,6 +391,8 @@ struct CompletedDownloadRow: View {
                     .foregroundColor(.secondary)
             }
             Spacer()
+            Button("导出", action: onExport)
+                .font(.caption)
             Button("删除", role: .destructive, action: onDelete)
                 .font(.caption)
         }
