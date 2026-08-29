@@ -48,6 +48,7 @@ final class DownloadManager: ObservableObject {
         tasks[index].progress = 0
         tasks[index].errorMessage = nil
         tasks[index].downloadedSegmentCount = 0
+        segmentData[id] = nil
         scheduleNext()
     }
 
@@ -69,6 +70,30 @@ final class DownloadManager: ObservableObject {
         scheduleNext()
     }
 
+    // MARK: - 请求构造（防 Cloudflare 拦截）
+
+    private func makeRequest(url: URL, referer: String? = nil) -> URLRequest {
+        var request = URLRequest(url: url)
+        request.setValue(
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+            forHTTPHeaderField: "User-Agent"
+        )
+        request.setValue("*/*", forHTTPHeaderField: "Accept")
+        request.setValue("zh-CN,zh;q=0.9", forHTTPHeaderField: "Accept-Language")
+        if let referer = referer {
+            request.setValue(referer, forHTTPHeaderField: "Referer")
+        }
+        return request
+    }
+
+    // 从 m3u8 URL 提取站点根地址作为 Referer
+    private func refererForURL(_ url: URL) -> String? {
+        guard let scheme = url.scheme, let host = url.host else { return nil }
+        return "\(scheme)://\(host)/"
+    }
+
+    // MARK: - 调度
+
     private func scheduleNext() {
         let pending = tasks.filter { $0.status == .pending }
         for task in pending {
@@ -86,14 +111,14 @@ final class DownloadManager: ObservableObject {
         }
     }
 
+    // MARK: - 下载主流程
+
     private func performDownload(_ id: UUID) async {
-        // 每次访问 tasks 前都用 id 重新查找，不持有 index
         func updateTask(_ update: (inout DownloadTask) -> Void) {
             guard let idx = tasks.firstIndex(where: { $0.id == id }) else { return }
             update(&tasks[idx])
         }
 
-        // 取任务快照
         guard let task = tasks.first(where: { $0.id == id }) else { return }
 
         do {
@@ -101,8 +126,16 @@ final class DownloadManager: ObservableObject {
                 throw M3U8ParserError.invalidURL
             }
 
-            let (data, _) = try await URLSession.shared.data(from: url)
+            let referer = refererForURL(url)
+
+            // 下载 m3u8 playlist
+            let (data, _) = try await URLSession.shared.data(for: makeRequest(url: url, referer: referer))
             guard let content = String(data: data, encoding: .utf8) else {
+                throw M3U8ParserError.invalidContent
+            }
+
+            // 如果返回的是 HTML（Cloudflare 拦截），直接报错
+            if content.hasPrefix("<!DOCTYPE") || content.hasPrefix("<html") {
                 throw M3U8ParserError.invalidContent
             }
 
@@ -115,8 +148,11 @@ final class DownloadManager: ObservableObject {
                       let variantURL = URL(string: best.url) else {
                     throw M3U8ParserError.invalidContent
                 }
-                let (vData, _) = try await URLSession.shared.data(from: variantURL)
+                let (vData, _) = try await URLSession.shared.data(for: makeRequest(url: variantURL, referer: referer))
                 guard let vContent = String(data: vData, encoding: .utf8) else {
+                    throw M3U8ParserError.invalidContent
+                }
+                if vContent.hasPrefix("<!DOCTYPE") || vContent.hasPrefix("<html") {
                     throw M3U8ParserError.invalidContent
                 }
                 let mediaPlaylist = try M3U8Parser.parse(vContent, baseURL: variantURL)
@@ -145,26 +181,27 @@ final class DownloadManager: ObservableObject {
 
                 let segData: Data
                 if let range = segments[segmentIndex].byteRange {
-                    var request = URLRequest(url: segURL)
+                    var request = makeRequest(url: segURL, referer: referer)
                     let start = range.offset
                     let end = range.offset + range.length - 1
                     request.setValue("bytes=\(start)-\(end)", forHTTPHeaderField: "Range")
                     let (rangeData, _) = try await URLSession.shared.data(for: request)
                     segData = rangeData
                 } else {
-                    let (segDataFull, _) = try await URLSession.shared.data(from: segURL)
+                    let (segDataFull, _) = try await URLSession.shared.data(for: makeRequest(url: segURL, referer: referer))
                     segData = segDataFull
                 }
 
                 var finalData = segData
 
+                // AES-128-CBC 解密
                 if let keyURI = segments[segmentIndex].keyURI {
                     let keyBytes: [UInt8]
                     if cachedKeyURI == keyURI, let cached = cachedKey {
                         keyBytes = cached
                     } else {
                         guard let keyURL = URL(string: keyURI) else { continue }
-                        let (kData, _) = try await URLSession.shared.data(from: keyURL)
+                        let (kData, _) = try await URLSession.shared.data(for: makeRequest(url: keyURL, referer: referer))
                         keyBytes = [UInt8](kData)
                         cachedKey = keyBytes
                         cachedKeyURI = keyURI
@@ -213,6 +250,8 @@ final class DownloadManager: ObservableObject {
         downloadJobs[id] = nil
         scheduleNext()
     }
+
+    // MARK: - 工具方法
 
     private func getIVBytes(for segment: M3U8Segment, sequenceNumber: Int) -> [UInt8] {
         if let ivHex = segment.keyIV {
